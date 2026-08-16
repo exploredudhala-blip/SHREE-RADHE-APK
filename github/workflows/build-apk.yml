@@ -1,4 +1,4 @@
-name: Build SHREE RADHE APK
+name: Build APK
 
 on:
   workflow_dispatch:
@@ -18,6 +18,11 @@ jobs:
         run: |
           unzip -q SHREE_RADHE_Android_Project_v5.zip -d android-project
 
+      - name: Show project files
+        run: |
+          echo "Project contents:"
+          find android-project -maxdepth 5 -type f | head -200
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -27,14 +32,44 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.7'
+
+      - name: Find Gradle project
+        run: |
+          GRADLEW=$(find android-project -type f -name "gradlew" | head -n 1)
+
+          if [ -n "$GRADLEW" ]; then
+            PROJECT_DIR=$(dirname "$GRADLEW")
+            echo "Using Gradle Wrapper"
+            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+            echo "USE_WRAPPER=true" >> "$GITHUB_ENV"
+          else
+            BUILD_FILE=$(find android-project -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) | head -n 1)
+
+            if [ -z "$BUILD_FILE" ]; then
+              echo "No Gradle project found."
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$BUILD_FILE")
+            echo "Using system Gradle"
+            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+            echo "USE_WRAPPER=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Build APK
-        working-directory: android-project
-        run: gradle assembleDebug --stacktrace
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ "$USE_WRAPPER" = "true" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          else
+            gradle assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: SHREE-RADHE-APK
-          path: android-project/app/build/outputs/apk/debug/*.apk
+          path: |
+            android-project/**/build/outputs/apk/**/*.apk
