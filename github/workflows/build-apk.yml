@@ -36,26 +36,19 @@ jobs:
 
       - name: Find Gradle project
         run: |
-          GRADLEW=$(find android-project -type f -name "gradlew" | head -n 1)
+          echo "Project contents:"
+          find android-project -maxdepth 4 -type f | head -200
 
-          if [ -n "$GRADLEW" ]; then
-            PROJECT_DIR=$(dirname "$GRADLEW")
-            echo "Using Gradle Wrapper"
-            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-            echo "USE_WRAPPER=true" >> "$GITHUB_ENV"
-          else
-            BUILD_FILE=$(find android-project -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) | head -n 1)
+          BUILD_FILE=$(find android-project -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) | head -n 1)
 
-            if [ -z "$BUILD_FILE" ]; then
-              echo "No Gradle project found."
-              exit 1
-            fi
-
-            PROJECT_DIR=$(dirname "$BUILD_FILE")
-            echo "Using system Gradle"
-            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-            echo "USE_WRAPPER=false" >> "$GITHUB_ENV"
+          if [ -z "$BUILD_FILE" ]; then
+            echo "No Gradle build file found."
+            exit 1
           fi
+
+          PROJECT_DIR=$(dirname "$BUILD_FILE")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Using project: $PROJECT_DIR"
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
