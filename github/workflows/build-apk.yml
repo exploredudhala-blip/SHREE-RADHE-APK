@@ -14,54 +14,137 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract Android project
+      - name: Find ZIP file
+        id: zip
+        shell: bash
         run: |
-          unzip -q SHREE_RADHE_Android_Project_v5.zip -d android-project
+          ZIP_FILE="SHREE_RADHE_Android_Project_v5.zip"
 
-      - name: Show project files
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "Expected ZIP not found. Available ZIP files:"
+            find . -type f -name "*.zip" -print
+            exit 1
+          fi
+
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
+          echo "Found: $ZIP_FILE"
+
+      - name: Extract Android project
+        shell: bash
         run: |
-          echo "Project contents:"
-          find android-project -maxdepth 5 -type f | head -200
+          rm -rf android-project
+          mkdir -p android-project
+
+          unzip -q "$ZIP_FILE" -d android-project
+
+          echo "===== Extracted files ====="
+          find android-project -maxdepth 5 -type f | head -300
+
+      - name: Find Android Gradle project
+        shell: bash
+        run: |
+          echo "===== Searching for Gradle project ====="
+
+          SETTINGS_FILE=$(find android-project -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            | head -n 1)
+
+          if [ -n "$SETTINGS_FILE" ]; then
+            PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+            echo "Found settings file:"
+            echo "$SETTINGS_FILE"
+          else
+            BUILD_FILE=$(find android-project -type f \
+              \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+              | head -n 1)
+
+            if [ -z "$BUILD_FILE" ]; then
+              echo "ERROR: No Gradle project found."
+              echo "===== All extracted files ====="
+              find android-project -type f -print
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$BUILD_FILE")
+            echo "Found build file:"
+            echo "$BUILD_FILE"
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "===== Using project directory ====="
+          echo "$PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: "8.7"
 
-      - name: Find Gradle project
+      - name: Show Gradle information
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          echo "Project contents:"
-          find android-project -maxdepth 5 -type f | head -200
+          echo "===== Java ====="
+          java -version
 
-          BUILD_FILE=$(find android-project -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) | head -n 1)
+          echo "===== Gradle ====="
+          gradle --version
 
-          if [ -z "$BUILD_FILE" ]; then
-            echo "No Gradle build file found."
-            exit 1
+          echo "===== Project files ====="
+          ls -la
+
+      - name: Make Gradle wrapper executable
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            echo "Gradle wrapper found."
+          else
+            echo "No Gradle wrapper found."
+            echo "System Gradle will be used."
           fi
-
-          PROJECT_DIR=$(dirname "$BUILD_FILE")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Using project: $PROJECT_DIR"
-
-          PROJECT_DIR=$(dirname "$BUILD_FILE")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Using project: $PROJECT_DIR"
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          gradle assembleDebug
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
+
+      - name: Find APK
+        shell: bash
+        run: |
+          echo "===== Searching for APK ====="
+
+          find "${{ env.PROJECT_DIR }}" \
+            -type f \
+            -name "*.apk" \
+            -print
+
+          APK_COUNT=$(find "${{ env.PROJECT_DIR }}" \
+            -type f \
+            -name "*.apk" \
+            | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: SHREE-RADHE-APK
           path: |
-            android-project/**/build/outputs/apk/**/*.apk
+            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
